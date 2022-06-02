@@ -209,6 +209,70 @@ loc = loess(Potência~velocidade, span = s, data = aeroTreino)
 yhat_loc = predict(loc, aeroTeste)
 métricas(yhat_loc, potTeste)
 
+################################################################################
+#Sistema de Inferência Fuzzy - Mamdani
+ordenamento = sort.int(velocidade, index.return = T) 
+names(ordenamento)
+x = ordenamento$x
+y = Potência[ordenamento$ix]
+
+#número dae funções de pertinência
+Nmf = 5
+
+#Valores iniciais dos parâmetros das funções de pertinência
+centers = c(4, 6.5, 9.19, 11.5, 14)
+powerw= c(20, 134, 270, 480, 508)
+
+plot(x = velocidade, y = Potência, main = "Curva de Potência do Aerogerador", lwd = 2, xlab = "velocidade (m/s)", ylab = "Potência (W)", cex.lab = 1.3, cex.axis = 1.3, xlim = c(0,19), ylim = c(0,700))
+points(centers, powerw, pch = 20, col = "red", cex = 2)
+legend("topleft", legend = c("observações", "pontos de suporte", "muito baixa", "baixa", "média", "alta", "muito alta"), col = c("black", "red", "darkslategrey", "green", "blue", "brown", "orange"), pch = c(1, 20, 20, 20, 20, 20, 20), bty = "n", pt.cex = 2, cex = 1.2, text.col = "black", horiz = F , inset = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
+
+#dispersão para cada gaussiana
+spread = 1.35
+
+#criação de um grid para a velocidade
+xx = velocidade[-treino] #seq(from = 0.8*min(x), to = 1.2*max(x), by = 0.1)
+mi = matrix(0, nrow = Nmf, ncol = length(xx))
+ypred = rep(0, 5)
+ypred_TS = rep(0, 5)
+yhat_mamdani = rep(0, length(xx))
+yhat_TS = rep(0, length(xx))
+
+#Divisao do universo de discurso em intervalos de larguras iguais
+t = c(0, 3, 6, 9, 12, 15)
+fix(aero)
+
+#funções de pertinência gaussianas para a velocidade
+for (j in 1:length(xx)) {
+  for (i in 1:Nmf) {
+    mi[i, j] = exp(-(xx[j] - centers[i])^2/(2*(spread)^2)) #ativaçao da i-ésima regra
+    ypred[i] = powerw[i] #saída predita para i-ésima regra (singleton)
+    I = which(velocidade >= t[i] & velocidade < t[i+1])
+    linear = lm(Potência~velocidade, data = aero[I, ])
+    ypred_TS[i] = dot(linear$coefficients, c(1,xx[j]))
+  }
+  
+  yhat_mamdani[j] = dot(ypred, mi[, j])/sum(mi[, j])
+  yhat_TS[j] = dot(ypred_TS, mi[, j])/sum(mi[, j])
+}
+
+
+#Amplificação
+K=150
+
+#plot's das funções de pertinência
+lines(xx, K*mi[1,], type = "l", col = "darkslategrey", lwd = 3)
+lines(xx, K*mi[2,], type = "l", col = "green", lwd = 3)
+lines(xx, K*mi[3,], type = "l", col = "blue", lwd = 3)
+lines(xx, K*mi[4,], type = "l", col = "brown", lwd = 3)
+lines(xx, K*mi[5,], type = "l", col = "orange", lwd = 3)
+
+#Etapa de predição
+métricas(yhat_mamdani, potTeste)
+métricas(yhat_TS, potTeste)
+
+##############################################################
+
 #plot
 resultados = cbind(yhat_loc, potTeste)
 resultados = as.data.frame(resultados)
@@ -226,12 +290,12 @@ p1 = ggMarginal(p, type="histogram", fill = "slateblue")
 p1 
 
 #radar plot
-modelos = c("Linear", "Ridge", "Envelope", "Polinomial", "Local")
-RMSE = c(28.18, 28.18, 28.18, 15.52, 15.48)
-MBE = c(0.048, 0.038, 0.048, -0.23, -0.14)
+modelos = c("Linear", "Ridge", "Envelope", "Polinomial", "Local", "Mamdani", "Takagi-Sugeno")
+RMSE = c(28.18, 28.18, 28.18, 15.52, 15.48, 19.31, 28.41)
+MBE = c(0.048, 0.038, 0.048, -0.23, -0.14, 7.20, 16.97)
 MAE = c(17.86, 17.87, 17.86, 10.50, 10.47)
 
-erros = cbind(modelos, RMSE, MBE, MAE)
+erros = cbind(modelos, RMSE, MBE)
 erros = data.frame(erros)
 rownames(erros) = modelos
 fix(erros)
@@ -241,19 +305,21 @@ Modelo = erros$modelos
 plotMBE_RMSE = ggplot(erros, aes(x = RMSE, y = MBE), group=Modelo) + 
   geom_point(aes(shape=Modelo, color=Modelo, 
                  size=Modelo))+
-  scale_shape_manual(values=c(17, 19, 18,15, 10))+
-  scale_color_manual(values=c('#006600','red', '#cc9900', "blue", "black"))+
+  scale_shape_manual(values=c(17, 19, 18, 15, 10, 9, 8))+
+  scale_color_manual(values=c('#006600','red', '#cc9900', "blue", "black", "magenta", "darkslategrey"))+
   theme(legend.position="right")+
-  scale_size_manual(values=c(3,4,3,3, 3))+
+  scale_size_manual(values=c(3,4,3,3,3,3,3))+
   # horizontal
   geom_hline(yintercept=0, color="black", size=.5) + 
   # vertical
   geom_vline(xintercept=0, color="black", size=.5)+
-  coord_cartesian(xlim=c(-30,30),ylim = c(-30,30))+
-  scale_x_continuous(breaks = seq(-30,30,((30+30)/5)))+
-  scale_y_continuous(breaks = seq(-30,30,((30+30)/5)))+
+  coord_cartesian(xlim=c(-40,40),ylim = c(-40,40))+
+  scale_x_continuous(breaks = seq(-40,40,((40+40)/5)))+
+  scale_y_continuous(breaks = seq(-40,40,((40+40)/5)))+
   coord_fixed()+
-  geom_circle(linetype="dashed", color = "black" ,aes(x0 = 0, y0 = 0, r = seq(0, 30, length.out = 5)),inherit.aes = FALSE)
+  geom_circle(linetype="dashed", color = "black" ,aes(x0 = 0, y0 = 0, r = seq(0, 40, length.out = 7)),inherit.aes = FALSE)+
+  theme(
+    axis.title=element_text(size=14,face="bold"), plot.title = element_text(size=14,face="bold"), axis.text = element_text(size = 16))
 plotMBE_RMSE
 
 #Análise de resíduos
